@@ -77,8 +77,12 @@ function copyToDest(filesToCopy) {
         const destPath = path.join(destDir, file);
 
         if (type == "delete") {
-            fs.unlinkSync(destPath);
-            logData += `    - ${file} - delete\n`;
+            if (fs.existsSync(destPath)) {
+                let bakName = `${file}.bak.delete.${currentDateTime}`;
+                const bakPath = path.join(destDir, bakName);
+                fs.renameSync(destPath, bakPath);
+                logData += `    - ${file} - delete (backup to ${bakName})\n`;
+            }
         } else {
             let dirname = path.dirname(destPath)
             if (!fs.existsSync(dirname)) {
