@@ -1,0 +1,11 @@
+{
+  "name": "deployman",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/theeradech-d/deployman.git",
+  "author": "Theeradech Dechasit <notegamer@hotmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "start": "node index.js"
+  }
+}
