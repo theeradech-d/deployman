@@ -1,4 +1,5 @@
 const path = require("path");
+const { spawn } = require("child_process");
 const fs = require("fs");
 const { exec } = require("child_process");
 const config = require("./config");
@@ -240,7 +241,7 @@ function copyToDest(filesToCopy) {
                 const bakPath = path.join(destDir, bakName);
                 fs.renameSync(destPath, bakPath);
                 logData += `    - ${file} - delete (backup to ${bakName})\n`;
-            }else{
+            } else {
                 logData += `    - ${file} - delete_is_not_exist\n`;
             }
         } else {
@@ -272,6 +273,83 @@ function copyToDest(filesToCopy) {
     console.log(logData);
 }
 
+function runScript(command) {
+    return new Promise((resolve, reject) => {
+        const repoPath = config.sourceDir;
+
+        const projectPath = path.resolve(__dirname, repoPath);
+
+        const shell = `cd ${projectPath} && ${command}`;
+        console.log("RUN::" + shell);
+        // exec(shell, async (error, stdout, stderr) => {
+        //     if (error) {
+        //         console.error(`exec error: ${error}`);
+        //         reject(error);
+        //         return;
+        //     }
+        //     console.log("RESULT::", stdout);
+        //     resolve(stdout);
+        // });
+
+        const child = spawn(shell, { shell: true });
+
+        child.stdout.on("data", (data) => {
+            process.stdout.write(data); // Write output to console
+        });
+
+        child.stderr.on("data", (data) => {
+            process.stderr.write(data); // Write error output to console
+        });
+
+        child.on("close", (code) => {
+            console.log(`Command exited with code ${code}`);
+            resolve(code);
+        });
+    });
+}
+async function preScript() {
+    if (config.preScript) {
+        if (config.preScript.length > 0) {
+            const prompt = new Confirm({
+                name: "question",
+                message: "You want to run pre script?",
+            });
+
+            let confirm = await prompt.run();
+
+            if (confirm) {
+                console.log("\n########### RUN::preScript ###########\n");
+                for (let index = 0; index < config.preScript.length; index++) {
+                    const cmd = config.preScript[index];
+                    await runScript(cmd);
+                }
+                console.log("########### END::preScript ###########\n");
+            }
+        }
+    }
+}
+async function postScript() {
+    if (config.postScript) {
+        if (config.postScript.length > 0) {
+            const prompt = new Confirm({
+                name: "question",
+                message: "You want to run post script?",
+            });
+
+            let confirm = await prompt.run();
+
+            if (confirm) {
+                console.log("\n########### RUN::postScript###########\n");
+                for (let index = 0; index < config.postScript.length; index++) {
+                    const cmd = config.postScript[index];
+                    await runScript(cmd);
+                }
+                console.log("########### END::postScript###########\n");
+            }
+        }
+    }
+}
+
 module.exports = {
     gitListCommits,
     selectCommits,
@@ -279,4 +357,6 @@ module.exports = {
     gitPull,
     listFileInGitPullLog,
     copyToDest,
+    preScript,
+    postScript,
 };
