@@ -2,26 +2,179 @@ const path = require("path");
 const fs = require("fs");
 const { exec } = require("child_process");
 const config = require("./config");
+const { prompt, MultiSelect, Confirm } = require("enquirer");
+
+function gitListCommits() {
+    return new Promise((resolve, reject) => {
+        const repoPath = config.sourceDir;
+
+        const projectPath = path.resolve(__dirname, repoPath);
+
+        exec(
+            `cd ${projectPath} && git log -20 --pretty=format:"%h---%s---%cd" --date=format:'%Y-%m-%d %H:%M:%S'`,
+            async (error, stdout, stderr) => {
+                if (error) {
+                    console.error(`exec error: ${error}`);
+                    reject(error);
+                    return;
+                }
+
+                // console.log(`stdout: ${stdout}`);
+                // console.error(`stderr: ${stderr}`);
+
+                let lists = stdout.split("\n").map((row) => {
+                    const [id, comment, date] = row.split("---");
+                    return {
+                        id,
+                        comment,
+                        date,
+                        name: `${id} - ${date} - ${comment} `,
+                        value: id,
+                    };
+                });
+
+                resolve(lists);
+            }
+        );
+    });
+}
+
+async function selectCommits(lists) {
+    const prompt = new MultiSelect({
+        name: "value",
+        message: "Pick commits",
+        limit: 20,
+        choices: lists,
+        result(names) {
+            return this.map(names);
+        },
+    });
+
+    return prompt.run().then((answer) => {
+        let data = [];
+        Object.keys(answer).forEach((name) => {
+            let id = answer[name];
+            data.push({
+                id,
+                name,
+            });
+        });
+
+        return data;
+    });
+}
+
+function listFilesInCommitId(commitId) {
+    return new Promise((resolve, reject) => {
+        const repoPath = config.sourceDir;
+
+        const projectPath = path.resolve(__dirname, repoPath);
+
+        exec(
+            `cd ${projectPath} && git diff-tree --no-commit-id --name-status -r ${commitId}`,
+            async (error, stdout, stderr) => {
+                if (error) {
+                    console.error(`exec error: ${error}`);
+                    reject(error);
+                    return;
+                }
+
+                console.log(stdout);
+
+                let lists = stdout
+                    .trim()
+                    .split("\n")
+                    .map((o) => o.trim().split("\t"))
+                    .filter((o) => o[0] && o[1])
+                    .map((o) => {
+                        let type = "";
+                        switch (o[0]) {
+                            case "A":
+                                type = "add";
+                                break;
+                            case "M":
+                                type = "update";
+                                break;
+                            case "D":
+                                type = "delete";
+                                break;
+                            default:
+                                type = "unknow";
+                                break;
+                        }
+                        return {
+                            type,
+                            fileName: o[1],
+                        };
+                    });
+
+                resolve(lists);
+            }
+        );
+    });
+}
+
+async function confirmDeploy(_commits) {
+    let commits = _commits.reverse();
+
+    let allFiles = [];
+    for (let index = 0; index < commits.length; index++) {
+        const commit = commits[index];
+        let files = await listFilesInCommitId(commit.id);
+
+        // console.log({
+        //     commit,
+        //     files,
+        // });
+
+        allFiles = [...allFiles, ...files];
+    }
+
+    if (allFiles.length == 0) {
+        console.error("no files");
+        return;
+    }
+
+    const prompt = new Confirm({
+        name: "question",
+        message: "Confirm deploys?",
+    });
+
+    console.table(allFiles);
+
+    let confirm = await prompt.run();
+
+    if (confirm) {
+        copyToDest(allFiles);
+    }
+}
 
 function gitPull() {
-    const repoPath = config.sourceDir;
+    return new Promise((resolve, reject) => {
+        const repoPath = config.sourceDir;
 
-    const projectPath = path.resolve(__dirname, repoPath);
+        const projectPath = path.resolve(__dirname, repoPath);
 
-    exec(`cd ${projectPath} && git pull`, (error, stdout, stderr) => {
-        if (error) {
-            console.error(`exec error: ${error}`);
-            return;
-        }
+        const shell = `cd ${projectPath} && git pull`;
+        console.log(shell);
+        exec(shell, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`exec error: ${error}`);
+                reject(error);
+                return;
+            }
 
-        console.log(`stdout: ${stdout}`);
-        console.error(`stderr: ${stderr}`);
+            console.log(`stdout: ${stdout}`);
+            console.error(`stderr: ${stderr}`);
 
-        const updatedFiles = listFileInGitPullLog(stdout);
+            resolve();
 
-        console.log(updatedFiles);
+            // const updatedFiles = listFileInGitPullLog(stdout);
 
-        copyToDest(updatedFiles);
+            // console.log(updatedFiles);
+
+            // copyToDest(updatedFiles);
+        });
     });
 }
 
@@ -63,13 +216,18 @@ function copyToDest(filesToCopy) {
 
     const sourceDir = config.sourceDir;
     const destDir = config.destDir;
-    const logFilePath = path.resolve(__dirname, 'logs', `log-${currentDate}.log`);
+    const logFilePath = path.resolve(
+        __dirname,
+        "logs",
+        `log-${currentDate}.log`
+    );
 
     let logData = ""; // create empty log data
 
     logData += `\n${currentDateTimeFormat}\n`;
 
-    filesToCopy.forEach((f) => {
+    for (let index = 0; index < filesToCopy.length; index++) {
+        const f = filesToCopy[index];
         let file = f.fileName;
         let type = f.type;
 
@@ -82,9 +240,11 @@ function copyToDest(filesToCopy) {
                 const bakPath = path.join(destDir, bakName);
                 fs.renameSync(destPath, bakPath);
                 logData += `    - ${file} - delete (backup to ${bakName})\n`;
+            }else{
+                logData += `    - ${file} - delete_is_not_exist\n`;
             }
         } else {
-            let dirname = path.dirname(destPath)
+            let dirname = path.dirname(destPath);
             if (!fs.existsSync(dirname)) {
                 fs.mkdirSync(dirname, { recursive: true });
             }
@@ -94,16 +254,28 @@ function copyToDest(filesToCopy) {
                 fs.renameSync(destPath, bakPath);
                 logData += `    - ${file} - exist (backup to ${bakName})\n`;
             } else {
-                logData += `    - ${file} - new\n`;
+                if (fs.existsSync(sourcePath)) {
+                    logData += `    - ${file} - new\n`;
+                } else {
+                    logData += `    - ${file} - new_is_not_exist\n`;
+                }
             }
-            fs.copyFileSync(sourcePath, destPath);
+
+            if (fs.existsSync(sourcePath)) {
+                fs.copyFileSync(sourcePath, destPath);
+            }
         }
-    });
+    }
 
     fs.appendFileSync(logFilePath, logData);
+
+    console.log(logData);
 }
 
 module.exports = {
+    gitListCommits,
+    selectCommits,
+    confirmDeploy,
     gitPull,
     listFileInGitPullLog,
     copyToDest,
