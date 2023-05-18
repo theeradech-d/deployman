@@ -12,7 +12,7 @@ function gitListCommits() {
         const projectPath = path.resolve(__dirname, repoPath);
 
         exec(
-            `cd ${projectPath} && git log -20 --pretty=format:"%h---%s---%cd" --date=format:'%Y-%m-%d %H:%M:%S'`,
+            `cd ${projectPath} && git log -20 --pretty=format:"%h---%s---%cd---%an <%ae>" --date=format:'%Y-%m-%d %H:%M:%S'`,
             async (error, stdout, stderr) => {
                 if (error) {
                     console.error(`exec error: ${error}`);
@@ -24,12 +24,12 @@ function gitListCommits() {
                 // console.error(`stderr: ${stderr}`);
 
                 let lists = stdout.split("\n").map((row) => {
-                    const [id, comment, date] = row.split("---");
+                    const [id, comment, date, name] = row.split("---");
                     return {
                         id,
                         comment,
                         date,
-                        name: `${id} - ${date} - ${comment} `,
+                        name: `${id} - ${date} - ${name} - ${comment}`,
                         value: id,
                     };
                 });
